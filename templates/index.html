@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Spam Classifier - Modern ML Dashboard</title>
+    <!-- Google Fonts: Outfit for headings, Inter for body -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="glass-bg-container">
+        <div class="blur-circle circle-1"></div>
+        <div class="blur-circle circle-2"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-area">
+                    <i class="fa-solid fa-shield-halved app-logo"></i>
+                </div>
+                <h1 class="gradient-text">Email Spam Classifier</h1>
+                <p class="subtitle">A production-ready NLP application evaluating emails using Machine Learning</p>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Content -->
+        <main class="main-content">
+            <!-- Left Panel: Classifier Input and Output -->
+            <section class="classifier-section">
+                <div class="dashboard-card main-card">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-keyboard icon-blue"></i> Analyze New Message</h2>
+                        <span class="badge {{ 'badge-success' if assets_loaded else 'badge-danger' }}">
+                            <span class="pulse-dot"></span>
+                            {{ 'Model Ready' if assets_loaded else 'Model Offline (Train Required)' }}
+                        </span>
+                    </div>
+                    
+                    <div class="input-container">
+                        <textarea id="email-text" placeholder="Paste the content of your email or SMS message here..." rows="8"></textarea>
+                        <div class="char-counter"><span id="char-count">0</span> characters</div>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button id="btn-predict" class="btn btn-primary" onclick="predictSpam()">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Predict
+                        </button>
+                        <button id="btn-clear" class="btn btn-secondary" onclick="clearInput()">
+                            <i class="fa-solid fa-trash-can"></i> Clear
+                        </button>
+                    </div>
+
+                    <!-- Loader (Hidden initially) -->
+                    <div id="loader" class="loader-container hidden">
+                        <div class="spinner"></div>
+                        <p>Analyzing text semantics...</p>
+                    </div>
+
+                    <!-- Prediction Result Container (Hidden initially) -->
+                    <div id="result-container" class="result-container hidden">
+                        <div id="result-card" class="result-card">
+                            <div class="result-icon-wrapper">
+                                <span id="result-icon"></span>
+                            </div>
+                            <div class="result-details">
+                                <span class="result-label">Semantics Prediction</span>
+                                <h3 id="result-prediction"></h3>
+                                <div class="confidence-section">
+                                    <div class="confidence-header">
+                                        <span>Confidence Score</span>
+                                        <span id="result-confidence" class="confidence-value">0%</span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div id="confidence-bar" class="progress-bar" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Preprocessed Text Details -->
+                        <div class="processed-text-card">
+                            <h4><i class="fa-solid fa-gears"></i> Preprocessed Tokens (Stemmed & Cleaned)</h4>
+                            <p id="processed-tokens"></p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Model Metrics & Training Analytics -->
+            <section class="analytics-section">
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-chart-line icon-purple"></i> Model Training & Analytics</h2>
+                        <span class="info-tooltip" title="Visualizations updated automatically after train_model.py runs">
+                            <i class="fa-solid fa-circle-info"></i> Info
+                        </span>
+                    </div>
+
+                    <div class="tabs-header">
+                        <button class="tab-btn active" onclick="switchTab(event, 'tab-wordcloud')">Word Cloud</button>
+                        <button class="tab-btn" onclick="switchTab(event, 'tab-keywords')">Top Keywords</button>
+                        <button class="tab-btn" onclick="switchTab(event, 'tab-comparison')">Model Accuracy</button>
+                        <button class="tab-btn" onclick="switchTab(event, 'tab-confusion')">Confusion Matrix</button>
+                        <button class="tab-btn" onclick="switchTab(event, 'tab-distribution')">Distribution</button>
+                    </div>
+
+                    <div class="tabs-content">
+                        <!-- Word Cloud -->
+                        <div id="tab-wordcloud" class="tab-pane active">
+                            <div class="visualization-wrapper">
+                                <img src="{{ url_for('static', filename='images/wordcloud_spam.png') }}" alt="Spam Word Cloud" onerror="this.src='https://placehold.co/800x400/2a2a35/a3a3c2?text=Run+train_model.py+to+generate+images'">
+                                <div class="viz-caption">
+                                    <h4>Spam Word Cloud</h4>
+                                    <p>Identifies the most frequent stemmed terms across spam messages. Words like "call", "free", "txt", and "text" appear with high density.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Top Keywords -->
+                        <div id="tab-keywords" class="tab-pane">
+                            <div class="visualization-wrapper">
+                                <img src="{{ url_for('static', filename='images/top_spam_keywords.png') }}" alt="Top Spam Keywords" onerror="this.src='https://placehold.co/800x500/2a2a35/a3a3c2?text=Run+train_model.py+to+generate+images'">
+                                <div class="viz-caption">
+                                    <h4>Top 15 Keywords Frequency</h4>
+                                    <p>Histogram of the top 15 terms in spam messages. It helps identify high-importance feature tokens for the Naive Bayes and SVM models.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Model Accuracy -->
+                        <div id="tab-comparison" class="tab-pane">
+                            <div class="visualization-wrapper">
+                                <img src="{{ url_for('static', filename='images/model_accuracy_comparison.png') }}" alt="Model Comparison" onerror="this.src='https://placehold.co/800x500/2a2a35/a3a3c2?text=Run+train_model.py+to+generate+images'">
+                                <div class="viz-caption">
+                                    <h4>Performance Benchmarking</h4>
+                                    <p>Compares classification accuracy across Multinomial Naive Bayes, Logistic Regression, and Support Vector Machine. The highest accuracy model is automatically serialized and served.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Confusion Matrix -->
+                        <div id="tab-confusion" class="tab-pane">
+                            <div class="visualization-wrapper">
+                                <img src="{{ url_for('static', filename='images/confusion_matrix.png') }}" alt="Confusion Matrix" onerror="this.src='https://placehold.co/600x500/2a2a35/a3a3c2?text=Run+train_model.py+to+generate+images'">
+                                <div class="viz-caption">
+                                    <h4>Error Rates Heatmap (Best Model)</h4>
+                                    <p>Shows True Positives, False Positives (Ham classified as Spam), True Negatives, and False Negatives. In spam classification, minimizing False Positives (misclassifying important emails) is critical.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Class Distribution -->
+                        <div id="tab-distribution" class="tab-pane">
+                            <div class="visualization-wrapper">
+                                <img src="{{ url_for('static', filename='images/spam_vs_ham_count.png') }}" alt="Class Distribution" onerror="this.src='https://placehold.co/600x400/2a2a35/a3a3c2?text=Run+train_model.py+to+generate+images'">
+                                <div class="viz-caption">
+                                    <h4>Class Balance Check</h4>
+                                    <p>Displays the ratio of legitimate (ham) to spam messages in the original SMS Spam Collection corpus. High imbalance explains why F1-score is preferred over pure accuracy.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Email Spam Classifier project built with Flask, Scikit-Learn, and NLTK.</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
