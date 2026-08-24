@@ -10,12 +10,13 @@ app = Flask(__name__)
 # Global variables for model and vectorizer
 model = None
 vectorizer = None
+model_load_error = None
 
 def load_ml_assets():
     """
     Loads the trained model and TF-IDF vectorizer pickles using absolute paths.
     """
-    global model, vectorizer
+    global model, vectorizer, model_load_error
     
     # Resolve paths relative to the directory containing this script
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,8 +30,10 @@ def load_ml_assets():
             with open(vectorizer_path, 'rb') as f:
                 vectorizer = pickle.load(f)
             print("Successfully loaded model.pkl and vectorizer.pkl")
+            model_load_error = None
             return True
         except Exception as e:
+            model_load_error = str(e)
             print(f"Error loading pickle files: {e}")
             print("Troubleshooting steps:")
             print("1. Ensure 'train_model.py' ran successfully using the same Python environment.")
@@ -38,6 +41,7 @@ def load_ml_assets():
             print("   We recommend running app.py using '.venv\\Scripts\\python app.py'")
             return False
     else:
+        model_load_error = "Pickle files not found on disk."
         print(f"Pickle files not found at:\n - {model_path}\n - {vectorizer_path}\nMake sure to run 'train_model.py' first.")
         return False
 
@@ -69,9 +73,12 @@ def predict():
     # Reload models if they weren't loaded initially (just in case training completed in parallel)
     if model is None or vectorizer is None:
         if not load_ml_assets():
+            error_message = "Trained model and vectorizer are not available."
+            if model_load_error:
+                error_message += f" ({model_load_error})"
             return jsonify({
                 "success": False,
-                "error": "Trained model and vectorizer are not available. Please run model training using the correct environment first."
+                "error": error_message
             }), 500
 
     try:
