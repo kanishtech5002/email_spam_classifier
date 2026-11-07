@@ -1,8 +1,8 @@
 flask
-pandas
-numpy
 scikit-learn
 nltk
+numpy
+pandas
 matplotlib
 seaborn
 wordcloud

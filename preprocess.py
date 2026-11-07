@@ -1,29 +1,13 @@
 import re
 import string
-import nltk
-from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from nltk.stem import PorterStemmer
 
-# Programmatically check and download required NLTK packages
-def download_nltk_resources():
-    """
-    Ensures that NLTK resources required for preprocessing (stopwords)
-    are downloaded and available.
-    """
-    try:
-        # Check if stopwords is already downloaded
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        # Download stopwords silently if not found
-        nltk.download('stopwords', quiet=True)
-
-# Run the download check on import
-download_nltk_resources()
-
-# Initialize NLTK components
+# Initialize NLTK PorterStemmer (rule-based stemmer, requires no external corpora)
 stemmer = PorterStemmer()
-# Store English stopwords in a set for O(1) lookup
-stop_words = set(stopwords.words('english'))
+
+# Store built-in scikit-learn English stopwords in a set for O(1) lookup
+stop_words = set(ENGLISH_STOP_WORDS)
 
 def preprocess_text(text):
     """
@@ -32,7 +16,7 @@ def preprocess_text(text):
     2. Removes all punctuation marks.
     3. Removes numeric digits.
     4. Tokenizes text into individual words.
-    5. Filters out English stopwords.
+    5. Filters out English stopwords using Scikit-Learn's built-in ENGLISH_STOP_WORDS.
     6. Stems words to their root forms using PorterStemmer.
     7. Cleans up any extra whitespaces.
     

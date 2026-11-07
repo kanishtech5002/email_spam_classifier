@@ -5,7 +5,15 @@ from flask import Flask, render_template, request, jsonify
 # Import custom text preprocessing module
 from preprocess import preprocess_text
 
-app = Flask(__name__)
+# Resolve absolute base directory
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Configure Flask with explicit paths for templates and static files
+app = Flask(
+    __name__,
+    template_folder=os.path.join(base_dir, 'templates'),
+    static_folder=os.path.join(base_dir, 'static')
+)
 
 # Global variables for model and vectorizer
 model = None
@@ -15,50 +23,53 @@ model_load_error = None
 def load_ml_assets():
     """
     Loads the trained model and TF-IDF vectorizer pickles using absolute paths.
+    Includes fallback search for serverless deployment environments.
     """
     global model, vectorizer, model_load_error
     
-    # Resolve paths relative to the directory containing this script
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # Primary paths relative to this script
     model_path = os.path.join(base_dir, "model.pkl")
     vectorizer_path = os.path.join(base_dir, "vectorizer.pkl")
     
+    # Fallback to parent directory if executing from a nested folder (e.g., api/)
+    if not (os.path.exists(model_path) and os.path.exists(vectorizer_path)):
+        parent_dir = os.path.dirname(base_dir)
+        alt_model_path = os.path.join(parent_dir, "model.pkl")
+        alt_vec_path = os.path.join(parent_dir, "vectorizer.pkl")
+        if os.path.exists(alt_model_path) and os.path.exists(alt_vec_path):
+            model_path = alt_model_path
+            vectorizer_path = alt_vec_path
+
     if os.path.exists(model_path) and os.path.exists(vectorizer_path):
         try:
             with open(model_path, 'rb') as f:
                 model = pickle.load(f)
             with open(vectorizer_path, 'rb') as f:
                 vectorizer = pickle.load(f)
-            print("Successfully loaded model.pkl and vectorizer.pkl")
+            print(f"Successfully loaded model and vectorizer from: {model_path}")
             model_load_error = None
             return True
         except Exception as e:
             model_load_error = str(e)
             print(f"Error loading pickle files: {e}")
-            print("Troubleshooting steps:")
-            print("1. Ensure 'train_model.py' ran successfully using the same Python environment.")
-            print("2. If you are running 'app.py' globally, check if scikit-learn is installed.")
-            print("   We recommend running app.py using '.venv\\Scripts\\python app.py'")
             return False
     else:
-        model_load_error = "Pickle files not found on disk."
-        print(f"Pickle files not found at:\n - {model_path}\n - {vectorizer_path}\nMake sure to run 'train_model.py' first.")
+        model_load_error = f"Pickle files not found on disk at: {model_path} and {vectorizer_path}"
+        print(model_load_error)
         return False
 
-# Load assets when the server starts
+# Attempt initial asset load on startup
 assets_loaded = load_ml_assets()
 
 @app.route('/')
 def home():
     """
-    Renders the homepage.
+    Renders the homepage dashboard.
     """
-    # Check if assets are loaded. Pass a status variable to the frontend.
-    # Note: re-check dynamically in case training completed after startup
-    current_assets_loaded = assets_loaded or (model is not None and vectorizer is not None)
-    if not current_assets_loaded:
-        current_assets_loaded = load_ml_assets()
-        
+    global model, vectorizer
+    if model is None or vectorizer is None:
+        load_ml_assets()
+    current_assets_loaded = (model is not None and vectorizer is not None)
     return render_template('index.html', assets_loaded=current_assets_loaded)
 
 @app.route('/predict', methods=['POST'])
@@ -70,7 +81,7 @@ def predict():
     """
     global model, vectorizer
     
-    # Reload models if they weren't loaded initially (just in case training completed in parallel)
+    # Lazy-load models if cold-started without initial load
     if model is None or vectorizer is None:
         if not load_ml_assets():
             error_message = "Trained model and vectorizer are not available."
@@ -82,8 +93,8 @@ def predict():
             }), 500
 
     try:
-        # Get data from request
-        data = request.get_json()
+        # Get JSON data from request
+        data = request.get_json(silent=True)
         if not data or 'message' not in data:
             return jsonify({
                 "success": False,
@@ -92,29 +103,27 @@ def predict():
 
         raw_message = data['message']
         
-        # Check for empty string input
-        if not raw_message.strip():
+        # Check for empty or non-string input
+        if not isinstance(raw_message, str) or not raw_message.strip():
             return jsonify({
                 "success": False,
                 "error": "The input text cannot be empty."
             }), 400
 
-        # 1. Preprocess the raw email text
+        # 1. Preprocess the raw email text using Scikit-Learn stopwords + PorterStemmer
         processed_message = preprocess_text(raw_message)
         
         # 2. Transform the preprocessed text using TF-IDF vectorizer
-        # Note: Vectorizer expects a list of documents, so wrap it in a list
         features = vectorizer.transform([processed_message])
         
         # 3. Predict the category
-        prediction = model.predict(features)[0] # Returns 0 (Ham) or 1 (Spam)
+        prediction = int(model.predict(features)[0]) # 0 (Ham) or 1 (Spam)
         
         # 4. Get the prediction probability (confidence)
         probabilities = model.predict_proba(features)[0]
-        # confidence is the probability score of the predicted class
         confidence = float(probabilities[prediction]) * 100
         
-        # Convert numeric prediction back to user-friendly text
+        # Convert numeric prediction to user-friendly label
         prediction_label = "Spam" if prediction == 1 else "Ham"
         
         return jsonify({
@@ -135,12 +144,19 @@ def get_status():
     """
     Endpoint to check training and model availability status.
     """
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    is_trained = os.path.exists(os.path.join(base_dir, "model.pkl")) and os.path.exists(os.path.join(base_dir, "vectorizer.pkl"))
+    global model, vectorizer
+    if model is None or vectorizer is None:
+        load_ml_assets()
+    model_path = os.path.join(base_dir, "model.pkl")
+    vectorizer_path = os.path.join(base_dir, "vectorizer.pkl")
+    is_trained = os.path.exists(model_path) and os.path.exists(vectorizer_path)
     return jsonify({
-        "model_trained": is_trained,
+        "model_trained": is_trained and (model is not None and vectorizer is not None),
         "model_type": str(type(model).__name__) if model is not None else "None"
     })
+
+# Expose WSGI application for serverless platforms like Vercel
+application = app
 
 if __name__ == '__main__':
     # Start the Flask app locally on port 5000 in debug mode

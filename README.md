@@ -81,7 +81,7 @@ Text normalization is handled in [`preprocess.py`](file:///C:/Users/kanis/OneDri
 2. **Punctuation Removal**: Replaces punctuation marks with whitespace using `string.punctuation` translation table to avoid merging adjacent words (e.g., `"spam/ham"` $\rightarrow$ `"spam ham"`).
 3. **Digit Removal**: Strips numeric values using regular expressions (`\d+`) to focus on semantic content.
 4. **Tokenization**: Splits messages into individual tokens based on whitespace.
-5. **Stopword Elimination**: Filters out non-informative English words using NLTK's `stopwords` corpus (stored in a hash set for $O(1)$ lookups).
+5. **Stopword Elimination**: Filters out non-informative English words using Scikit-Learn's built-in `ENGLISH_STOP_WORDS` (stored in a hash set for $O(1)$ lookups, requiring zero external corpus downloads for serverless deployments).
 6. **Porter Stemming**: Reduces morphological variations to their root forms (e.g., `"winning"` $\rightarrow$ `"win"`, `"prizes"` $\rightarrow$ `"prize"`).
 7. **Whitespace Compression**: Strips extraneous padding and collapses repeated spaces into single intervals.
 
@@ -110,9 +110,12 @@ In email spam filtering, a **False Positive** (classifying an important legitima
 ```text
 Email spam classifier/
 │
+├── api/
+│   └── index.py               # Vercel serverless function entrypoint
 ├── app.py                     # Flask web server and REST API endpoints
 ├── preprocess.py              # Modular NLP text cleaning and Porter Stemmer pipeline
 ├── train_model.py             # Model training, benchmarking, and visualization generator
+├── vercel.json                # Vercel serverless deployment routing and bundle configuration
 │
 ├── spam.csv                   # SMS/Email Spam Collection dataset
 ├── model.pkl                  # Serialized production Multinomial Naive Bayes model
