@@ -8,11 +8,24 @@ from preprocess import preprocess_text
 # Resolve absolute base directory
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Configure Flask with explicit paths for templates and static files
+# Resolve templates and static folders with fallback for serverless subdirectories
+template_dir = os.path.join(base_dir, 'templates')
+if not os.path.isdir(template_dir):
+    parent_templates = os.path.join(os.path.dirname(base_dir), 'templates')
+    if os.path.isdir(parent_templates):
+        template_dir = parent_templates
+
+static_dir = os.path.join(base_dir, 'static')
+if not os.path.isdir(static_dir):
+    parent_static = os.path.join(os.path.dirname(base_dir), 'static')
+    if os.path.isdir(parent_static):
+        static_dir = parent_static
+
+# Configure Flask with explicit paths
 app = Flask(
     __name__,
-    template_folder=os.path.join(base_dir, 'templates'),
-    static_folder=os.path.join(base_dir, 'static')
+    template_folder=template_dir,
+    static_folder=static_dir
 )
 
 # Global variables for model and vectorizer
@@ -61,7 +74,44 @@ def load_ml_assets():
 # Attempt initial asset load on startup
 assets_loaded = load_ml_assets()
 
+# WSGI Middleware to fix Vercel rewrite PATH_INFO
+class VercelPathRewriteMiddleware:
+    """
+    WSGI middleware that inspects request headers to restore the true requested path
+    if Vercel rewrote PATH_INFO to /api/index.
+    """
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        raw_path = environ.get('PATH_INFO', '')
+        
+        # When Vercel rewrites incoming requests to /api/index, check original URI headers
+        if raw_path in ('/api/index', '/api/index.py'):
+            orig_uri = (
+                environ.get('HTTP_X_MATCHED_PATH') or
+                environ.get('HTTP_X_NOW_ROUTE_MATCHES') or
+                environ.get('REQUEST_URI') or
+                environ.get('RAW_URI') or
+                ''
+            )
+            if orig_uri:
+                clean_path = orig_uri.split('?')[0]
+                if clean_path and clean_path not in ('/api/index', '/api/index.py'):
+                    environ['PATH_INFO'] = clean_path
+                elif clean_path in ('/api/index', '/api/index.py'):
+                    environ['PATH_INFO'] = '/'
+            else:
+                environ['PATH_INFO'] = '/'
+                
+        return self.wsgi_app(environ, start_response)
+
+# Apply middleware to Flask WSGI application
+app.wsgi_app = VercelPathRewriteMiddleware(app.wsgi_app)
+
 @app.route('/')
+@app.route('/index')
+@app.route('/api/index')
 def home():
     """
     Renders the homepage dashboard.
@@ -73,6 +123,7 @@ def home():
     return render_template('index.html', assets_loaded=current_assets_loaded)
 
 @app.route('/predict', methods=['POST'])
+@app.route('/api/predict', methods=['POST'])
 def predict():
     """
     Receives email text from POST request, runs the preprocessor,
@@ -140,6 +191,7 @@ def predict():
         }), 500
 
 @app.route('/status', methods=['GET'])
+@app.route('/api/status', methods=['GET'])
 def get_status():
     """
     Endpoint to check training and model availability status.

@@ -8,6 +8,5 @@ if root_dir not in sys.path:
 
 from app import app
 
-# Vercel serverless function entry point
-app = app
-
+# Expose WSGI application for Vercel Serverless Functions
+application = app
