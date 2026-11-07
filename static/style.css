@@ -582,10 +582,89 @@ textarea:focus {
 .footer {
     text-align: center;
     margin-top: 4rem;
-    padding-top: 1.5rem;
+    padding-top: 2rem;
+    padding-bottom: 1.5rem;
     border-top: 1px solid var(--border-glass);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+}
+
+.footer-title {
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: 0.92rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.footer-divider {
+    color: rgba(255, 255, 255, 0.2);
+    margin: 0 0.5rem;
+    font-weight: 300;
+}
+
+.footer-author-line {
+    margin: 0;
+    display: flex;
+    justify-content: center;
+}
+
+.footer-author-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.9rem;
+    border-radius: 9999px;
+    background: rgba(139, 92, 246, 0.08);
+    border: 1px solid rgba(139, 92, 246, 0.25);
+    box-shadow: 0 2px 10px rgba(139, 92, 246, 0.12);
+    transition: all var(--transition-fast);
+}
+
+.footer-author-badge:hover {
+    background: rgba(139, 92, 246, 0.14);
+    border-color: rgba(139, 92, 246, 0.45);
+    box-shadow: 0 4px 18px var(--secondary-glow);
+    transform: translateY(-1px);
+}
+
+.footer-author {
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    background: linear-gradient(135deg, #c084fc 0%, #8b5cf6 50%, #ec4899 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+@media (max-width: 640px) {
+    .footer {
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        gap: 0.6rem;
+    }
+
+    .footer-title {
+        font-size: 0.84rem;
+        padding: 0 0.5rem;
+    }
+
+    .footer-divider {
+        margin: 0 0.35rem;
+    }
+
+    .footer-author {
+        font-size: 0.88rem;
+    }
+
+    .footer-author-badge {
+        padding: 0.2rem 0.75rem;
+    }
 }
 
 /* Tooltip and utility */
