@@ -8,15 +8,7 @@
   ],
   "functions": {
     "api/index.py": {
-      "includeFiles": [
-        "app.py",
-        "model.pkl",
-        "vectorizer.pkl",
-        "preprocess.py",
-        "templates/**",
-        "static/**",
-        "public/**"
-      ]
+      "includeFiles": "{app.py,preprocess.py,model.pkl,vectorizer.pkl,templates/**,static/**}"
     }
   }
 }
