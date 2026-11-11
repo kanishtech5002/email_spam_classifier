@@ -5,21 +5,25 @@ from flask import Flask, render_template, request, jsonify
 # Import custom text preprocessing module
 from preprocess import preprocess_text
 
-# Resolve absolute base directory
+# Resolve absolute base directory of app.py
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Resolve templates and static folders with fallback for serverless subdirectories
-template_dir = os.path.join(base_dir, 'templates')
-if not os.path.isdir(template_dir):
-    parent_templates = os.path.join(os.path.dirname(base_dir), 'templates')
-    if os.path.isdir(parent_templates):
-        template_dir = parent_templates
+# Resolve templates and static folders with multi-directory fallback
+template_dir = None
+static_dir = None
 
-static_dir = os.path.join(base_dir, 'static')
-if not os.path.isdir(static_dir):
-    parent_static = os.path.join(os.path.dirname(base_dir), 'static')
-    if os.path.isdir(parent_static):
-        static_dir = parent_static
+for d in [base_dir, os.path.dirname(base_dir), os.getcwd()]:
+    t_cand = os.path.join(d, 'templates')
+    s_cand = os.path.join(d, 'static')
+    if not template_dir and os.path.isdir(t_cand):
+        template_dir = t_cand
+    if not static_dir and os.path.isdir(s_cand):
+        static_dir = s_cand
+
+if not template_dir:
+    template_dir = os.path.join(base_dir, 'templates')
+if not static_dir:
+    static_dir = os.path.join(base_dir, 'static')
 
 # Configure Flask with explicit paths
 app = Flask(
@@ -36,24 +40,29 @@ model_load_error = None
 def load_ml_assets():
     """
     Loads the trained model and TF-IDF vectorizer pickles using absolute paths.
-    Includes fallback search for serverless deployment environments.
+    Searches multiple potential locations to ensure reliability in serverless environments.
     """
     global model, vectorizer, model_load_error
     
-    # Primary paths relative to this script
-    model_path = os.path.join(base_dir, "model.pkl")
-    vectorizer_path = os.path.join(base_dir, "vectorizer.pkl")
-    
-    # Fallback to parent directory if executing from a nested folder (e.g., api/)
-    if not (os.path.exists(model_path) and os.path.exists(vectorizer_path)):
-        parent_dir = os.path.dirname(base_dir)
-        alt_model_path = os.path.join(parent_dir, "model.pkl")
-        alt_vec_path = os.path.join(parent_dir, "vectorizer.pkl")
-        if os.path.exists(alt_model_path) and os.path.exists(alt_vec_path):
-            model_path = alt_model_path
-            vectorizer_path = alt_vec_path
+    search_dirs = [
+        base_dir,                           # Directory containing app.py
+        os.path.dirname(base_dir),          # Parent directory
+        os.getcwd(),                        # Current working directory (/var/task on Vercel)
+        os.path.join(os.getcwd(), 'api'),   # api subdirectory
+    ]
 
-    if os.path.exists(model_path) and os.path.exists(vectorizer_path):
+    model_path = None
+    vectorizer_path = None
+
+    for directory in search_dirs:
+        m_p = os.path.join(directory, "model.pkl")
+        v_p = os.path.join(directory, "vectorizer.pkl")
+        if os.path.exists(m_p) and os.path.exists(v_p):
+            model_path = m_p
+            vectorizer_path = v_p
+            break
+
+    if model_path and vectorizer_path:
         try:
             with open(model_path, 'rb') as f:
                 model = pickle.load(f)
@@ -67,7 +76,7 @@ def load_ml_assets():
             print(f"Error loading pickle files: {e}")
             return False
     else:
-        model_load_error = f"Pickle files not found on disk at: {model_path} and {vectorizer_path}"
+        model_load_error = f"Pickle files not found on disk in any search directory: {search_dirs}"
         print(model_load_error)
         return False
 
@@ -78,7 +87,7 @@ assets_loaded = load_ml_assets()
 class VercelPathRewriteMiddleware:
     """
     WSGI middleware that inspects request headers to restore the true requested path
-    if Vercel rewrote PATH_INFO to /api/index.
+    if Vercel rewrote PATH_INFO to /api or /api/index.
     """
     def __init__(self, wsgi_app):
         self.wsgi_app = wsgi_app
@@ -86,8 +95,8 @@ class VercelPathRewriteMiddleware:
     def __call__(self, environ, start_response):
         raw_path = environ.get('PATH_INFO', '')
         
-        # When Vercel rewrites incoming requests to /api/index, check original URI headers
-        if raw_path in ('/api/index', '/api/index.py'):
+        # When Vercel rewrites incoming requests to /api/index or /api, check original URI headers
+        if not raw_path or raw_path in ('/api', '/api/', '/api/index', '/api/index.py'):
             orig_uri = (
                 environ.get('HTTP_X_MATCHED_PATH') or
                 environ.get('HTTP_X_NOW_ROUTE_MATCHES') or
@@ -97,9 +106,9 @@ class VercelPathRewriteMiddleware:
             )
             if orig_uri:
                 clean_path = orig_uri.split('?')[0]
-                if clean_path and clean_path not in ('/api/index', '/api/index.py'):
+                if clean_path and clean_path not in ('/api', '/api/', '/api/index', '/api/index.py'):
                     environ['PATH_INFO'] = clean_path
-                elif clean_path in ('/api/index', '/api/index.py'):
+                else:
                     environ['PATH_INFO'] = '/'
             else:
                 environ['PATH_INFO'] = '/'
@@ -111,6 +120,7 @@ app.wsgi_app = VercelPathRewriteMiddleware(app.wsgi_app)
 
 @app.route('/')
 @app.route('/index')
+@app.route('/api')
 @app.route('/api/index')
 def home():
     """
@@ -199,16 +209,16 @@ def get_status():
     global model, vectorizer
     if model is None or vectorizer is None:
         load_ml_assets()
-    model_path = os.path.join(base_dir, "model.pkl")
-    vectorizer_path = os.path.join(base_dir, "vectorizer.pkl")
-    is_trained = os.path.exists(model_path) and os.path.exists(vectorizer_path)
+    
+    has_model = (model is not None and vectorizer is not None)
     return jsonify({
-        "model_trained": is_trained and (model is not None and vectorizer is not None),
+        "model_trained": has_model,
         "model_type": str(type(model).__name__) if model is not None else "None"
     })
 
 # Expose WSGI application for serverless platforms like Vercel
 application = app
+handler = app
 
 if __name__ == '__main__':
     # Start the Flask app locally on port 5000 in debug mode
