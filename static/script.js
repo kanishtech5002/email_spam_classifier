@@ -14,7 +14,7 @@ if (emailTextarea) {
 
 /**
  * Predicts whether the input message is Spam or Ham.
- * Calls Flask backend /predict API.
+ * Calls Flask backend prediction API.
  */
 async function predictSpam() {
     const text = emailTextarea.value.trim();
@@ -47,19 +47,29 @@ async function predictSpam() {
         const response = await fetch('/predict', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
             body: JSON.stringify({ message: text })
         });
 
-        const data = await response.json();
+        // Ensure the response is JSON before parsing to avoid syntax error crashes
+        const contentType = response.headers.get('content-type') || '';
+        let data;
+
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const rawText = await response.text();
+            throw new Error(`Server returned unexpected non-JSON response (${response.status}): ${rawText.substring(0, 100)}`);
+        }
 
         // Hide loader and re-enable buttons
         loader.classList.add('hidden');
         btnPredict.disabled = false;
         btnClear.disabled = false;
 
-        if (data.success) {
+        if (response.ok && data.success) {
             // Configure UI for Result displays
             resultContainer.classList.remove('hidden');
             
@@ -91,7 +101,8 @@ async function predictSpam() {
                 }, 100);
             }
         } else {
-            alert(`Error: ${data.error}`);
+            const errorMsg = data && data.error ? data.error : `Request failed with status ${response.status}`;
+            alert(`Error: ${errorMsg}`);
         }
 
     } catch (error) {

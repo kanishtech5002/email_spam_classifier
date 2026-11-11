@@ -1,5 +1,7 @@
 import os
+import re
 import pickle
+from urllib.parse import parse_qs, unquote
 from flask import Flask, render_template, request, jsonify
 
 # Import custom text preprocessing module
@@ -83,45 +85,115 @@ def load_ml_assets():
 # Attempt initial asset load on startup
 assets_loaded = load_ml_assets()
 
-# WSGI Middleware to fix Vercel rewrite PATH_INFO
+# WSGI Middleware to normalize PATH_INFO for Vercel serverless rewrites
 class VercelPathRewriteMiddleware:
     """
-    WSGI middleware that inspects request headers to restore the true requested path
-    if Vercel rewrote PATH_INFO to /api or /api/index.
+    WSGI middleware that normalizes PATH_INFO when deployed behind Vercel serverless rewrites.
+    Resolves the original request path from query parameters, routing headers, or HTTP method.
     """
     def __init__(self, wsgi_app):
         self.wsgi_app = wsgi_app
 
     def __call__(self, environ, start_response):
         raw_path = environ.get('PATH_INFO', '')
+        query_string = environ.get('QUERY_STRING', '')
+        request_method = environ.get('REQUEST_METHOD', 'GET').upper()
         
-        # When Vercel rewrites incoming requests to /api/index or /api, check original URI headers
-        if not raw_path or raw_path in ('/api', '/api/', '/api/index', '/api/index.py'):
-            orig_uri = (
-                environ.get('HTTP_X_MATCHED_PATH') or
-                environ.get('HTTP_X_NOW_ROUTE_MATCHES') or
-                environ.get('REQUEST_URI') or
-                environ.get('RAW_URI') or
-                ''
-            )
-            if orig_uri:
-                clean_path = orig_uri.split('?')[0]
-                if clean_path and clean_path not in ('/api', '/api/', '/api/index', '/api/index.py'):
-                    environ['PATH_INFO'] = clean_path
-                else:
-                    environ['PATH_INFO'] = '/'
+        resolved_path = None
+        
+        # 1. Check if route was forwarded via __route__ query parameter in vercel.json
+        if '__route__=' in query_string:
+            params = parse_qs(query_string, keep_blank_values=True)
+            if '__route__' in params and params['__route__']:
+                val = params['__route__'][0]
+                if val:
+                    resolved_path = val if val.startswith('/') else f"/{val}"
+                    # Remove __route__ from QUERY_STRING so application receives clean query parameters
+                    clean_params = {k: v for k, v in params.items() if k != '__route__'}
+                    new_qs = []
+                    for k, v_list in clean_params.items():
+                        for v_item in v_list:
+                            new_qs.append(f"{k}={v_item}")
+                    environ['QUERY_STRING'] = '&'.join(new_qs)
+
+        # 2. Check x-now-route-matches header if present
+        if not resolved_path:
+            route_matches = environ.get('HTTP_X_NOW_ROUTE_MATCHES', '')
+            if route_matches:
+                decoded = unquote(route_matches)
+                matches = dict(re.findall(r"([^&=]+)=([^&]*)", decoded))
+                if '1' in matches and matches['1']:
+                    val = matches['1']
+                    resolved_path = val if val.startswith('/') else f"/{val}"
+
+        # 3. Check standard URI headers
+        if not resolved_path:
+            for header in ('REQUEST_URI', 'RAW_URI'):
+                val = environ.get(header, '')
+                if val:
+                    clean = val.split('?')[0]
+                    if clean and clean not in ('/api', '/api/', '/api/index', '/api/index.py'):
+                        resolved_path = clean
+                        break
+
+        # 4. Apply resolved path or provide robust serverless defaults
+        if resolved_path:
+            environ['PATH_INFO'] = resolved_path
+        elif not raw_path or raw_path in ('/api', '/api/', '/api/index', '/api/index.py'):
+            # If path resolved to the serverless function root:
+            # POST requests default to prediction endpoint; GET requests default to home
+            if request_method == 'POST':
+                environ['PATH_INFO'] = '/predict'
             else:
                 environ['PATH_INFO'] = '/'
-                
+
         return self.wsgi_app(environ, start_response)
 
 # Apply middleware to Flask WSGI application
 app.wsgi_app = VercelPathRewriteMiddleware(app.wsgi_app)
 
-@app.route('/')
-@app.route('/index')
-@app.route('/api')
-@app.route('/api/index')
+# JSON Error Handlers (Ensures API requests always receive JSON, never raw HTML)
+@app.errorhandler(400)
+def handle_bad_request(e):
+    return jsonify({
+        "success": False,
+        "error": getattr(e, 'description', 'Bad Request')
+    }), 400
+
+@app.errorhandler(404)
+def handle_not_found(e):
+    if request.path.startswith('/api') or request.path.startswith('/predict') or request.method == 'POST' or request.is_json:
+        return jsonify({
+            "success": False,
+            "error": f"API endpoint not found: {request.path}"
+        }), 404
+    return render_template('index.html', assets_loaded=(model is not None and vectorizer is not None)), 200
+
+@app.errorhandler(405)
+def handle_method_not_allowed(e):
+    return jsonify({
+        "success": False,
+        "error": f"Method {request.method} not allowed for {request.path}"
+    }), 405
+
+@app.errorhandler(500)
+def handle_server_error(e):
+    return jsonify({
+        "success": False,
+        "error": "Internal server error occurred."
+    }), 500
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e):
+    return jsonify({
+        "success": False,
+        "error": f"Server error: {str(e)}"
+    }), 500
+
+@app.route('/', methods=['GET'])
+@app.route('/index', methods=['GET'])
+@app.route('/api', methods=['GET'])
+@app.route('/api/index', methods=['GET'])
 def home():
     """
     Renders the homepage dashboard.
@@ -134,6 +206,9 @@ def home():
 
 @app.route('/predict', methods=['POST'])
 @app.route('/api/predict', methods=['POST'])
+@app.route('/api', methods=['POST'])
+@app.route('/api/index', methods=['POST'])
+@app.route('/', methods=['POST'])
 def predict():
     """
     Receives email text from POST request, runs the preprocessor,
